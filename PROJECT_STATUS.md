@@ -17,7 +17,7 @@
 | 视觉编码器（plate） | ✅ | \`encodeImage()\`：patch_emb(CPU 精确) + 27 层 ViT（f16 权重 matmul + CPU attention）+ post_ln + proj_mlp |
 | 图像→730 token 多模态 prefill | ✅ | image prefix（730 token 全连接 mask）+ question prefill（prefix+causal mask）跑通，无崩溃 |
 | 图像问答端到端 | ✅ | 红圆图 → "The circle is red."；vision 40.4 s + image prefix 30.1 s + 生成，端到端 145 s |
-| 性能实测 | ✅ | 文本 decode 2.38 s/tok；prefill 7 token 9.9s；vision f16 40.4s；image prefix 30.1s（docs/BENCHMARK.md） |
+| 性能实测 | ✅ | 文本 decode 0.21 s/tok（AX，11.4x）/ 2.00 s/tok（默认）；prefill 7 token 9.9s；vision f16 40.4s；image prefix 30.1s（docs/BENCHMARK.md） |
 | 投机解码实验 | ✅ | prompt-lookup：接受 68.8%，decode 1.92x，端到端无净收益（docs/SPECULATIVE.md） |
 | AI Core 实验 | ✅ | 310B1 固定 1 AI Core（platform_config ai_core_cnt=1，npu-smi 无配置入口）；单核实测 0.29–0.38 TFLOPS |
 | benchmark / 文档 | ✅ | docs/BENCHMARK.md、docs/SPECULATIVE.md、README/PROJECT_STATUS 更新 |
@@ -42,7 +42,8 @@ code/moondream3_310b/
 
 1. **vision 速度**：40.4 s 中 CPU attention（head_dim=72，ACLNN 不支持非 32B 对齐 stride）约 15–20 s。
    计划：qkv_post 输出 [H,T,80] + DataCopyPad，或物理转置 K 后用 ACLNN matmul，把 vision 降到 20 s 内。
-2. **文本 decode 2.38 s/tok**：MoE 权重读取约 0.5 GB/token，受单核带宽限制；可尝试专家权重常驻/融合 kernel。
+2. **文本 decode 0.21 s/tok（AX 布局 + Axpy-N kernel，11.4x）**：原 2.38 s/tok 的瓶颈是每行 ~48 条向量指令的下发开销（不是带宽）；
+   已通过权重重排成 AX [g][w8][n] + 沿 N 向量化解决，token 与基线完全一致。
 3. **image prefix 30 s**：730 token 的 MoE prefill 每专家 host 分组/同步；设备端累加优化已验证必要性，但首版实现有 bug，
    已回退（正确性优先），后续再重做。
 4. `./md3_engine test` 中 attn_decode_text 单测在容差边缘（整模型 decode 与参考 corr 0.9996+，功能正确）。

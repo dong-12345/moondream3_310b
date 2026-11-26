@@ -7,7 +7,8 @@
 
 | 能力 | 状态 | 实测 |
 |---|---|---|
-| 文本 decode（24 层） | ✅ | 2.38 s/token，与参考 corr 0.9996+ |
+| 文本 decode（24 层，默认 gen2） | ✅ | 2.00 s/token，与参考 corr 0.9996+ |
+| **文本 decode（AX/Axpy-N，MD3_LAYOUT=axpy）** | ✅ | **0.21 s/token = 4.8 tok/s（11.4x）**，token 与基线完全相同 |
 | 文本 prefill（ACLNN 混合引擎） | ✅ | 7 token 9.9 s，输出与 decode 一致 |
 | vision encoder（27 层 ViT，f16 权重） | ✅ | 2 crops 40 s，逐层与 bf16 参考对齐 |
 | image prefix（730 token）+ 图像问答 | ✅ | "What color is the circle?" → "The circle is red." |
@@ -50,7 +51,9 @@ code/moondream3_310b/
 
 - 权重：文本 W4A16 5.4GB（int4 group64 → W4A16 group32）+ vision f16 0.85GB；
 - 板端：23GB 统一内存，1 AI Core（310B1 固定），CANN 8.0.0；
-- 文本 decode 2.38 s/tok、vision encode 40 s、image prefix 30 s、图像问答端到端 145 s；
+- 文本 decode **0.21 s/tok（AX 布局，11.4x）** / 2.00 s/tok（默认 gen2）、vision encode 40 s、image prefix 30 s、图像问答端到端 145 s；
+- decode 提速原理：权重离线重排成 AX [g][w8][n]（4 半字节/word），kernel 沿 N 向量化（Axpy-N，无归约树）；
+  旧路径的瓶颈不是带宽而是每行 ~48 条向量指令的下发开销（详见 docs/优化记录）
 - 详细基准见 docs/BENCHMARK.md。
 
 ## 许可
